@@ -1,0 +1,84 @@
+pipeline {
+    agent any
+
+    environment {
+        SSH_CRED    = 'node-cred'  // Jenkins SSH credential ID
+        SERVER_IP   = '16.171.69.233'
+        REMOTE_USER = 'ubuntu'
+        APP_DIR     = '/home/ubuntu/weather-app'
+        REPO_URL    = 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline.git'
+    }
+
+    stages {
+
+        stage('Clone Repository') {
+            steps {
+                echo '📦 Cloning repository...'
+                git url: "${REPO_URL}", branch: 'main'
+            }
+        }
+
+        stage('Setup Server & Deploy Files') {
+            steps {
+                echo '🚀 Setting up remote server and transferring files...'
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        # Create app directory and transfer files
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "sudo mkdir -p ${APP_DIR} && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${APP_DIR}"
+                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
+                    '''
+                }
+            }
+        }
+
+        stage('Install Dependencies & Run App') {
+            steps {
+                echo '⚙️ Installing Python, dependencies, and running app...'
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
+                            sudo apt update -y &&
+                            sudo apt install -y python3-pip python3-venv &&
+                            cd ${APP_DIR} &&
+                            python3 -m venv venv &&
+                            source venv/bin/activate &&
+                            pip install --upgrade pip &&
+                            pip install -r requirements.txt &&
+
+                            # Kill any old process on port 5000
+                            fuser -k 5000/tcp || true &&
+
+                            # Run the Flask app
+                            nohup venv/bin/python3 app.py > app.log 2>&1 &
+
+                            echo '✅ Flask app deployed successfully on port 5000!'
+                        "
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                echo '🔍 Checking if Flask app is running...'
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
+                            ps aux | grep app.py | grep -v grep || echo '❌ Flask app not running!'
+                            netstat -tuln | grep 5000 || echo '❌ Port 5000 not listening!'
+                        "
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '🎉 Deployment successful! Visit http://16.171.69.233:5000 to access your app.'
+        }
+        failure {
+            echo '❌ Deployment failed. Check Jenkins logs and app.log on the server.'
+        }
+    }
+}
