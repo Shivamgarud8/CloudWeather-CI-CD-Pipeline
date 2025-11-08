@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         SSH_CRED    = 'node-cred'  // Jenkins SSH credential ID
-        SERVER_IP   = '13.53.70.69'
+        SERVER_IP   = '13.53.216.159'
         REMOTE_USER = 'ubuntu'
         APP_DIR     = '/home/ubuntu/weather-app'
         REPO_URL    = 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline.git'
