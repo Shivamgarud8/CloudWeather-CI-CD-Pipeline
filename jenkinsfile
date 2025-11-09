@@ -3,10 +3,15 @@ pipeline {
 
     environment {
         SSH_CRED    = 'node-cred'  // Jenkins SSH credential ID
-        SERVER_IP   = '13.53.75.72'
+        SERVER_IP   = '13.53.216.159'
         REMOTE_USER = 'ubuntu'
-        APP_DIR     = '/home/ubuntu/weather-app'
-        REPO_URL    = 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline.git'
+        APP_DIR     = '/home/ubuntu/weather-notify-telegram'
+        REPO_URL    = 'https://github.com/Shivamgarud8/weather-notify-telegram.git'
+
+        # Environment variables for your app
+        OPENWEATHER_API_KEY = '803f77a96502ec00149f4b07055e5dd5'
+        TELEGRAM_BOT_TOKEN  = '8542334853:AAF0fE6Otml0RVEIsDGPvdDUBBrE15sad78'
+        TELEGRAM_CHAT_ID    = '1773222136'
     }
 
     stages {
@@ -18,76 +23,81 @@ pipeline {
             }
         }
 
-        stage('Setup Server & Transfer Files') {
+        stage('Transfer Files to Server') {
             steps {
-                echo '🚀 Setting up remote server and transferring files...'
+                echo '🚀 Copying project files to remote server...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
                             sudo mkdir -p ${APP_DIR} &&
                             sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${APP_DIR}
                         "
-                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
+                        scp -o StrictHostKeyChecking=no -r * ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
                     '''
                 }
             }
         }
 
-        stage('Install Python & Setup Environment') {
+        stage('Setup Python Environment') {
             steps {
-                echo '⚙️ Installing Python, pip, and venv on remote server...'
+                echo '🐍 Installing Python and dependencies...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
                             sudo apt update -y &&
                             sudo apt install -y python3 python3-pip python3-venv git &&
-                            python3 -m venv ${APP_DIR}/venv ||
-                            (sudo apt install -y python3.12-venv && python3 -m venv ${APP_DIR}/venv)
-                        "
-                    '''
-                }
-            }
-        }
-
-        stage('Install Dependencies & Run Flask App') {
-            steps {
-                echo '📦 Installing dependencies and running Flask app...'
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
                             cd ${APP_DIR} &&
+                            python3 -m venv venv ||
+                            (sudo apt install -y python3.12-venv && python3 -m venv venv) &&
+
                             source venv/bin/activate &&
                             pip install --upgrade pip &&
                             if [ -f 'requirements.txt' ]; then
                                 pip install -r requirements.txt
                             else
-                                pip install requests==2.31.0 flask
-                            fi &&
-
-                            # Kill old process if running
-                            fuser -k 5000/tcp || true &&
-
-                            # Run Flask app in background
-                            nohup venv/bin/python3 app.py > app.log 2>&1 &
-
-                            echo '✅ Flask app deployed successfully and running on port 5000!'
+                                pip install requests flask
+                            fi
                         "
                     '''
                 }
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Run Weather Script') {
             steps {
-                echo '🔍 Verifying Flask app status...'
+                echo '🌦️ Running weather Telegram notifier...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            echo '🩺 Checking running process...'
-                            ps aux | grep app.py | grep -v grep || echo '❌ Flask app not running!'
+                            cd ${APP_DIR} &&
+                            source venv/bin/activate &&
 
-                            echo '🌍 Checking port 5000...'
-                            sudo netstat -tuln | grep 5000 || echo '❌ Port 5000 not listening!'
+                            export OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY} &&
+                            export TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN} &&
+                            export TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID} &&
+
+                            # Kill old process if already running
+                            fuser -k 5000/tcp || true &&
+                            pkill -f app.py || true &&
+
+                            # Run new instance in background
+                            nohup venv/bin/python3 app.py > app.log 2>&1 &
+
+                            echo '✅ Weather notifier is running successfully!'
+                        "
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Process') {
+            steps {
+                echo '🔍 Checking running status on server...'
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
+                            ps aux | grep app.py | grep -v grep || echo '❌ app.py not running!'
+                            tail -n 10 ${APP_DIR}/app.log || echo '⚠️ No logs found!'
                         "
                     '''
                 }
@@ -97,10 +107,10 @@ pipeline {
 
     post {
         success {
-            echo '🎉 Deployment successful! Visit http://${SERVER_IP}:5000 to access your app.'
+            echo '🎉 Weather Notification Bot deployed successfully!'
         }
         failure {
-            echo '❌ Deployment failed. Check Jenkins logs and /home/ubuntu/weather-app/app.log on the server.'
+            echo '❌ Deployment failed. Check Jenkins logs or app.log on the server.'
         }
     }
 }
