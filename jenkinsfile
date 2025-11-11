@@ -2,52 +2,73 @@ pipeline {
     agent any
 
     environment {
-        SSH_CRED = 'jenkins-python'              // ✅ Your Jenkins SSH key ID
-        SERVER_IP = '51.20.64.167'           // ✅ EC2 public IP
-        REMOTE_USER = 'ubuntu'               // ✅ Default EC2 Ubuntu user
-        APP_DIR = '/home/ubuntu/flask-weather-app'
-        PYTHON_ENV = '/home/ubuntu/flask-weather-app/venv'
+        EC2_USER = "ubuntu"
+        EC2_IP = "51.20.64.167"
+        APP_DIR = "/home/ubuntu/flask-weather-app"
+        CREDENTIAL_ID = "jenkins-python"
+        PORT = "5000"
     }
 
     stages {
-        stage('Clone Repository') {
+        stage('Checkout Repository') {
             steps {
                 echo "📥 Cloning the Flask Weather App repository..."
-                git url: 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline', branch: 'main'
+                checkout scm
+            }
+        }
+
+        stage('Setup Python Environment') {
+            steps {
+                echo "🐍 Setting up Python environment..."
+                sh '''
+                sudo apt-get update -y
+                sudo apt-get install -y python3 python3-venv python3-pip
+                python3 -m venv venv
+                source venv/bin/activate
+                pip install --upgrade pip
+                pip install -r requirements.txt
+                '''
             }
         }
 
         stage('Deploy Application to EC2') {
             steps {
                 echo "🚀 Deploying files to EC2 Server..."
-                sshagent(credentials: ["${SSH_CRED}"]) {
+                sshagent(credentials: [CREDENTIAL_ID]) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "mkdir -p ${APP_DIR}"
-                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates static ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
+                    echo "📂 Creating project directory on EC2..."
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "mkdir -p ${APP_DIR}"
+
+                    echo "📦 Uploading project files..."
+                    scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates images ${EC2_USER}@${EC2_IP}:${APP_DIR}/
+
+                    echo "⚙️ Installing dependencies and starting Gunicorn server..."
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} << 'EOF'
+                    cd ${APP_DIR}
+                    sudo apt update -y
+                    sudo apt install -y python3-pip python3-venv
+                    python3 -m venv venv
+                    source venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                    pkill gunicorn || true
+                    nohup gunicorn -w 4 -b 0.0.0.0:${PORT} app:app > app.log 2>&1 &
+                    EOF
                     '''
                 }
             }
         }
 
-        stage('Install Dependencies & Run App') {
+        stage('Health Check') {
             steps {
-                echo "⚙️ Installing dependencies and starting Flask app..."
-                sshagent(["${SSH_CRED}"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
-                            sudo apt update -y &&
-                            sudo apt install -y python3 python3-venv python3-pip &&
-                            cd ${APP_DIR} &&
-                            python3 -m venv venv &&
-                            source venv/bin/activate &&
-                            pip install --upgrade pip &&
-                            pip install -r requirements.txt &&
-                            # Kill any previous Flask app running on port 5000
-                            pkill -f "python3 app.py" || true &&
-                            nohup python3 app.py > app.log 2>&1 &
-                            echo "✅ Flask app deployed and running on http://13.48.196.11:5000/"
-                        '
-                    """
+                echo "🩺 Checking if the Flask app is live..."
+                script {
+                    def result = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://${EC2_IP}:${PORT}/", returnStdout: true).trim()
+                    if (result != '200') {
+                        error("❌ Health check failed! Flask app not reachable.")
+                    } else {
+                        echo "✅ Health check passed! Flask app is running successfully."
+                    }
                 }
             }
         }
@@ -55,7 +76,7 @@ pipeline {
 
     post {
         success {
-            echo "🎉 Deployment Successful! Your Flask Weather App is live at: http://13.48.196.11:5000/"
+            echo "🎉 Deployment completed successfully! Visit: http://${EC2_IP}:${PORT}/"
         }
         failure {
             echo "❌ Deployment Failed! Check Jenkins logs for details."
