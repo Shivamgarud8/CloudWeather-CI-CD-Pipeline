@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        SSH_CRED = 'python-key'              // ✅ Your Jenkins SSH key ID
+        SSH_CRED = 'jenkins'              // ✅ Your Jenkins SSH key ID
         SERVER_IP = '13.48.196.11'           // ✅ EC2 public IP
         REMOTE_USER = 'ubuntu'               // ✅ Default EC2 Ubuntu user
         APP_DIR = '/home/ubuntu/flask-weather-app'
