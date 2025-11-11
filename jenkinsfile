@@ -2,94 +2,52 @@ pipeline {
     agent any
 
     environment {
-        SSH_CRED    = 'node-cred'  // Jenkins SSH credential ID
-        SERVER_IP   = '13.53.48.173'
-        REMOTE_USER = 'ubuntu'
-        APP_DIR     = '/home/ubuntu/tele'  // Project directory
-        REPO_URL    = 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline.git'
+        SSH_CRED = 'python-key'              // ✅ Your Jenkins SSH key ID
+        SERVER_IP = '13.48.196.11'           // ✅ EC2 public IP
+        REMOTE_USER = 'ubuntu'               // ✅ Default EC2 Ubuntu user
+        APP_DIR = '/home/ubuntu/flask-weather-app'
+        PYTHON_ENV = '/home/ubuntu/flask-weather-app/venv'
     }
 
     stages {
-
         stage('Clone Repository') {
             steps {
-                echo '📦 Cloning repository...'
-                git url: "${REPO_URL}", branch: 'main'
+                echo "📥 Cloning the Flask Weather App repository..."
+                git url: 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline', branch: 'main'
             }
         }
 
-        stage('Setup Server & Transfer Files') {
+        stage('Deploy Application to EC2') {
             steps {
-                echo '🚀 Setting up remote server and transferring files...'
+                echo "🚀 Deploying files to EC2 Server..."
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "sudo mkdir -p ${APP_DIR} && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${APP_DIR}"
-                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "mkdir -p ${APP_DIR}"
+                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates static ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
                     '''
                 }
             }
         }
 
-        stage('Install Python & Dependencies') {
+        stage('Install Dependencies & Run App') {
             steps {
-                echo '⚙️ Installing Python, venv, and dependencies on server...'
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
+                echo "⚙️ Installing dependencies and starting Flask app..."
+                sshagent(["${SSH_CRED}"]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
                             sudo apt update -y &&
-                            sudo apt install -y python3 python3-pip python3-venv &&
+                            sudo apt install -y python3 python3-venv python3-pip &&
                             cd ${APP_DIR} &&
                             python3 -m venv venv &&
                             source venv/bin/activate &&
                             pip install --upgrade pip &&
-                            pip install -r requirements.txt
-                        "
-                    '''
-                }
-            }
-        }
-
-        stage('Setup Cron Job for Daily Run') {
-            steps {
-                echo '⏰ Scheduling daily 8 AM cron job for Telegram bot...'
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            crontab -l 2>/dev/null | grep -v 'app.py' > temp_cron || true
-                            echo '0 8 * * * cd ${APP_DIR} && source ${APP_DIR}/venv/bin/activate && python ${APP_DIR}/app.py >> ${APP_DIR}/cron.log 2>&1' >> temp_cron
-                            crontab temp_cron
-                            rm temp_cron
-                            echo '✅ Cron job for 8 AM daily set up successfully!'
-                        "
-                    '''
-                }
-            }
-        }
-
-        stage('Run Telegram Bot Now') {
-            steps {
-                echo '🤖 Running Telegram Weather Bot immediately...'
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            cd ${APP_DIR} &&
-                            nohup venv/bin/python3 app.py > bot.log 2>&1 &
-                            echo '✅ Telegram bot is running!'
-                        "
-                    '''
-                }
-            }
-        }
-
-        stage('Verify Bot Deployment') {
-            steps {
-                echo '🔍 Checking if Telegram bot is running...'
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            ps aux | grep app.py | grep -v grep || echo '❌ Telegram bot not running!'
-                        "
-                    '''
+                            pip install -r requirements.txt &&
+                            # Kill any previous Flask app running on port 5000
+                            pkill -f "python3 app.py" || true &&
+                            nohup python3 app.py > app.log 2>&1 &
+                            echo "✅ Flask app deployed and running on http://13.48.196.11:5000/"
+                        '
+                    """
                 }
             }
         }
@@ -97,10 +55,10 @@ pipeline {
 
     post {
         success {
-            echo '🎉 Telegram Weather Bot deployed and scheduled successfully!'
+            echo "🎉 Deployment Successful! Your Flask Weather App is live at: http://13.48.196.11:5000/"
         }
         failure {
-            echo '❌ Deployment failed. Check Jenkins logs and bot.log on the server.'
+            echo "❌ Deployment Failed! Check Jenkins logs for details."
         }
     }
 }
