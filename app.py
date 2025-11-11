@@ -1,64 +1,54 @@
-pipeline {
-    agent any
+from flask import Flask, render_template, request
+import requests
 
-    environment {
-        SSH_CRED = 'python-key'              // ✅ Your Jenkins SSH key ID
-        SERVER_IP = '13.48.196.11'           // ✅ EC2 public IP
-        REMOTE_USER = 'ubuntu'               // ✅ Default EC2 Ubuntu user
-        APP_DIR = '/home/ubuntu/flask-weather-app'
-        PYTHON_ENV = '/home/ubuntu/flask-weather-app/venv'
-    }
+app = Flask(__name__)
 
-    stages {
-        stage('Clone Repository') {
-            steps {
-                echo "📥 Cloning the Flask Weather App repository..."
-                git url: 'https://github.com/iamtruptimane/pythonapp.git', branch: 'master'
-            }
+# ✅ OpenWeatherMap API details
+API_KEY = "803f77a96502ec00149f4b07055e5dd5"
+BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+
+@app.route('/')
+def index():
+    """Home page to enter city name"""
+    return render_template('index.html')
+
+
+@app.route('/weather', methods=['POST'])
+def weather():
+    """Fetch and display weather information for the entered city"""
+    city = request.form.get('city', '').strip()
+
+    if not city:
+        return render_template('result.html', error="⚠️ Please enter a city name.", weather=None)
+
+    try:
+        # Call OpenWeatherMap API
+        params = {'q': city, 'appid': API_KEY, 'units': 'metric'}
+        response = requests.get(BASE_URL, params=params)
+        data = response.json()
+
+        # Handle invalid city or API issues
+        if data.get('cod') != 200:
+            message = data.get('message', 'City not found!')
+            return render_template('result.html', error=message.capitalize(), weather=None)
+
+        # Extract weather details
+        weather_data = {
+            'city': data['name'],
+            'country': data['sys']['country'],
+            'temperature': round(data['main']['temp'], 1),
+            'description': data['weather'][0]['description'].title(),
+            'humidity': data['main']['humidity'],
+            'wind_speed': data['wind']['speed']
         }
 
-        stage('Deploy Application to EC2') {
-            steps {
-                echo "🚀 Deploying files to EC2 Server..."
-                sshagent(credentials: ["${SSH_CRED}"]) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "mkdir -p ${APP_DIR}"
-                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt templates static ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
-                    '''
-                }
-            }
-        }
+        return render_template('result.html', weather=weather_data, error=None)
 
-        stage('Install Dependencies & Run App') {
-            steps {
-                echo "⚙️ Installing dependencies and starting Flask app..."
-                sshagent(["${SSH_CRED}"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} '
-                            sudo apt update -y &&
-                            sudo apt install -y python3 python3-venv python3-pip &&
-                            cd ${APP_DIR} &&
-                            python3 -m venv venv &&
-                            source venv/bin/activate &&
-                            pip install --upgrade pip &&
-                            pip install -r requirements.txt &&
-                            # Kill any previous Flask app running on port 5000
-                            pkill -f "python3 app.py" || true &&
-                            nohup python3 app.py > app.log 2>&1 &
-                            echo "✅ Flask app deployed and running on http://13.48.196.11:5000/"
-                        '
-                    """
-                }
-            }
-        }
-    }
+    except Exception as e:
+        return render_template('result.html', error=f"❌ Error: {str(e)}", weather=None)
 
-    post {
-        success {
-            echo "🎉 Deployment Successful! Your Flask Weather App is live at: http://13.48.196.11:5000/"
-        }
-        failure {
-            echo "❌ Deployment Failed! Check Jenkins logs for details."
-        }
-    }
-}
+
+if __name__ == '__main__':
+    # Run app on all interfaces (important for EC2/Jenkins)
+    app.run(host='0.0.0.0', port=5000, debug=True)
