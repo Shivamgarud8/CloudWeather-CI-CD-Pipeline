@@ -3,15 +3,10 @@ pipeline {
 
     environment {
         SSH_CRED    = 'node-cred'  // Jenkins SSH credential ID
-        SERVER_IP   = '13.53.216.159'
+        SERVER_IP   = '13.53.48.173'
         REMOTE_USER = 'ubuntu'
-        APP_DIR     = '/home/ubuntu/weather-notify-telegram'
-        REPO_URL    = 'https://github.com/Shivamgarud8/weather-notify-telegram.git'
-
-        # Environment variables for your app
-        OPENWEATHER_API_KEY = '803f77a96502ec00149f4b07055e5dd5'
-        TELEGRAM_BOT_TOKEN  = '8542334853:AAF0fE6Otml0RVEIsDGPvdDUBBrE15sad78'
-        TELEGRAM_CHAT_ID    = '1773222136'
+        APP_DIR     = '/home/ubuntu/tele'  // Project directory
+        REPO_URL    = 'https://github.com/Shivamgarud8/weather-jenkins-python-pipeline.git'
     }
 
     stages {
@@ -23,81 +18,76 @@ pipeline {
             }
         }
 
-        stage('Transfer Files to Server') {
+        stage('Setup Server & Transfer Files') {
             steps {
-                echo '🚀 Copying project files to remote server...'
+                echo '🚀 Setting up remote server and transferring files...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            sudo mkdir -p ${APP_DIR} &&
-                            sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${APP_DIR}
-                        "
-                        scp -o StrictHostKeyChecking=no -r * ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "sudo mkdir -p ${APP_DIR} && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${APP_DIR}"
+                        scp -o StrictHostKeyChecking=no -r app.py requirements.txt ${REMOTE_USER}@${SERVER_IP}:${APP_DIR}/
                     '''
                 }
             }
         }
 
-        stage('Setup Python Environment') {
+        stage('Install Python & Dependencies') {
             steps {
-                echo '🐍 Installing Python and dependencies...'
+                echo '⚙️ Installing Python, venv, and dependencies on server...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
                             sudo apt update -y &&
-                            sudo apt install -y python3 python3-pip python3-venv git &&
+                            sudo apt install -y python3 python3-pip python3-venv &&
                             cd ${APP_DIR} &&
-                            python3 -m venv venv ||
-                            (sudo apt install -y python3.12-venv && python3 -m venv venv) &&
-
+                            python3 -m venv venv &&
                             source venv/bin/activate &&
                             pip install --upgrade pip &&
-                            if [ -f 'requirements.txt' ]; then
-                                pip install -r requirements.txt
-                            else
-                                pip install requests flask
-                            fi
+                            pip install -r requirements.txt
                         "
                     '''
                 }
             }
         }
 
-        stage('Run Weather Script') {
+        stage('Setup Cron Job for Daily Run') {
             steps {
-                echo '🌦️ Running weather Telegram notifier...'
+                echo '⏰ Scheduling daily 8 AM cron job for Telegram bot...'
+                sshagent(credentials: ["${SSH_CRED}"]) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
+                            crontab -l 2>/dev/null | grep -v 'app.py' > temp_cron || true
+                            echo '0 8 * * * cd ${APP_DIR} && source ${APP_DIR}/venv/bin/activate && python ${APP_DIR}/app.py >> ${APP_DIR}/cron.log 2>&1' >> temp_cron
+                            crontab temp_cron
+                            rm temp_cron
+                            echo '✅ Cron job for 8 AM daily set up successfully!'
+                        "
+                    '''
+                }
+            }
+        }
+
+        stage('Run Telegram Bot Now') {
+            steps {
+                echo '🤖 Running Telegram Weather Bot immediately...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
                             cd ${APP_DIR} &&
-                            source venv/bin/activate &&
-
-                            export OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY} &&
-                            export TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN} &&
-                            export TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID} &&
-
-                            # Kill old process if already running
-                            fuser -k 5000/tcp || true &&
-                            pkill -f app.py || true &&
-
-                            # Run new instance in background
-                            nohup venv/bin/python3 app.py > app.log 2>&1 &
-
-                            echo '✅ Weather notifier is running successfully!'
+                            nohup venv/bin/python3 app.py > bot.log 2>&1 &
+                            echo '✅ Telegram bot is running!'
                         "
                     '''
                 }
             }
         }
 
-        stage('Verify Process') {
+        stage('Verify Bot Deployment') {
             steps {
-                echo '🔍 Checking running status on server...'
+                echo '🔍 Checking if Telegram bot is running...'
                 sshagent(credentials: ["${SSH_CRED}"]) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${SERVER_IP} "
-                            ps aux | grep app.py | grep -v grep || echo '❌ app.py not running!'
-                            tail -n 10 ${APP_DIR}/app.log || echo '⚠️ No logs found!'
+                            ps aux | grep app.py | grep -v grep || echo '❌ Telegram bot not running!'
                         "
                     '''
                 }
@@ -107,10 +97,10 @@ pipeline {
 
     post {
         success {
-            echo '🎉 Weather Notification Bot deployed successfully!'
+            echo '🎉 Telegram Weather Bot deployed and scheduled successfully!'
         }
         failure {
-            echo '❌ Deployment failed. Check Jenkins logs or app.log on the server.'
+            echo '❌ Deployment failed. Check Jenkins logs and bot.log on the server.'
         }
     }
 }
