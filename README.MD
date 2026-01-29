@@ -15,7 +15,7 @@ Whenever a new change is pushed to the GitHub repository, Jenkins rebuilds and r
 ![Port](https://img.shields.io/badge/Port-5000-blue)
 
 ---
-
+![jenkins](images/a.png)
 ## 🌐 Live Project Demo
 
 🔗 **Deployed URL:** [http://your-server-ip:5000](http://13.49.80.18:5000)  
