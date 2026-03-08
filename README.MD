@@ -25,7 +25,7 @@ Whenever a new change is pushed to the GitHub repository, Jenkins rebuilds and r
 ![jenkins](images/pune.png)
 
 ![jenkins](images/pune2.png)
-## 🌤️ Project Overview
+## 🌤️ Project Overview.
 
 This Flask application allows users to:
 - Enter the **name of any city**
