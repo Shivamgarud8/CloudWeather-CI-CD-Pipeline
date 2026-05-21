@@ -13,7 +13,10 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s'
 )
 
-logging.error("Test error")
+logger = logging.getLogger(__name__)
+
+# Test log
+logger.error("Test error")
 
 # =========================
 # OpenWeatherMap API
@@ -24,7 +27,7 @@ BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 @app.route('/')
 def index():
-    logging.info("Home page opened")
+    logger.info("Home page opened")
     return render_template('index.html')
 
 
@@ -34,7 +37,8 @@ def weather():
     city = request.form.get('city', '').strip()
 
     if not city:
-        logging.warning("City name not entered")
+        logger.warning("City name not entered")
+
         return render_template(
             'result.html',
             error="Please enter a city name",
@@ -42,7 +46,7 @@ def weather():
         )
 
     try:
-        logging.info(f"Fetching weather for city: {city}")
+        logger.info(f"Fetching weather for city: {city}")
 
         params = {
             'q': city,
@@ -51,11 +55,16 @@ def weather():
         }
 
         response = requests.get(BASE_URL, params=params)
+
+        logger.info(f"API Status Code: {response.status_code}")
+
         data = response.json()
 
         if data.get('cod') != 200:
+
             message = data.get('message', 'City not found')
-            logging.error(f"API Error: {message}")
+
+            logger.error(f"API Error: {message}")
 
             return render_template(
                 'result.html',
@@ -72,7 +81,7 @@ def weather():
             'wind_speed': data['wind']['speed']
         }
 
-        logging.info(f"Weather data fetched successfully for {city}")
+        logger.info(f"Weather fetched successfully for {city}")
 
         return render_template(
             'result.html',
@@ -81,7 +90,8 @@ def weather():
         )
 
     except Exception as e:
-        logging.exception("Application Error")
+
+        logger.exception(f"Application Error: {str(e)}")
 
         return render_template(
             'result.html',
@@ -91,5 +101,5 @@ def weather():
 
 
 if __name__ == '__main__':
-    logging.info("Flask app started")
+    logger.info("Flask app started")
     app.run(host='0.0.0.0', port=5000, debug=True)
