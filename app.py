@@ -1,39 +1,68 @@
 from flask import Flask, render_template, request
 import requests
+import logging
 
 app = Flask(__name__)
 
-# ✅ OpenWeatherMap API details
+# =========================
+# Logging Configuration
+# =========================
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
+logging.error("Test error")
+
+# =========================
+# OpenWeatherMap API
+# =========================
 API_KEY = "803f77a96502ec00149f4b07055e5dd5"
 BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
 @app.route('/')
 def index():
-    """Home page to enter city name"""
+    logging.info("Home page opened")
     return render_template('index.html')
 
 
 @app.route('/weather', methods=['POST'])
 def weather():
-    """Fetch and display weather information for the entered city"""
+
     city = request.form.get('city', '').strip()
 
     if not city:
-        return render_template('result.html', error="⚠️ Please enter a city name.", weather=None)
+        logging.warning("City name not entered")
+        return render_template(
+            'result.html',
+            error="Please enter a city name",
+            weather=None
+        )
 
     try:
-        # Call OpenWeatherMap API
-        params = {'q': city, 'appid': API_KEY, 'units': 'metric'}
+        logging.info(f"Fetching weather for city: {city}")
+
+        params = {
+            'q': city,
+            'appid': API_KEY,
+            'units': 'metric'
+        }
+
         response = requests.get(BASE_URL, params=params)
         data = response.json()
 
-        # Handle invalid city or API issues
         if data.get('cod') != 200:
-            message = data.get('message', 'City not found!')
-            return render_template('result.html', error=message.capitalize(), weather=None)
+            message = data.get('message', 'City not found')
+            logging.error(f"API Error: {message}")
 
-        # Extract weather details
+            return render_template(
+                'result.html',
+                error=message.capitalize(),
+                weather=None
+            )
+
         weather_data = {
             'city': data['name'],
             'country': data['sys']['country'],
@@ -43,12 +72,24 @@ def weather():
             'wind_speed': data['wind']['speed']
         }
 
-        return render_template('result.html', weather=weather_data, error=None)
+        logging.info(f"Weather data fetched successfully for {city}")
+
+        return render_template(
+            'result.html',
+            weather=weather_data,
+            error=None
+        )
 
     except Exception as e:
-        return render_template('result.html', error=f"❌ Error: {str(e)}", weather=None)
+        logging.exception("Application Error")
+
+        return render_template(
+            'result.html',
+            error=f"Error: {str(e)}",
+            weather=None
+        )
 
 
 if __name__ == '__main__':
-    # Run app on all interfaces (important for EC2/Jenkins)
+    logging.info("Flask app started")
     app.run(host='0.0.0.0', port=5000, debug=True)
