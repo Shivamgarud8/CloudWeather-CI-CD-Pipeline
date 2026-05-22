@@ -23,7 +23,7 @@ logger.error("Test error log from Flask application")
 # =========================
 # OpenWeatherMap API
 # =========================
-API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY")
+API_KEY = os.getenv("OPENWEATHER_API_KEY", "803f77a96502ec00149f4b07055e5dd5")
 BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
