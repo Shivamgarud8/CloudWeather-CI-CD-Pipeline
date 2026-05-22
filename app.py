@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request
 import requests
 import logging
+import os
 
 app = Flask(__name__)
 
@@ -14,29 +15,38 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Test log
-logger.error("Test error")
+logger.error("Test error log from Flask application")
 
 # =========================
 # OpenWeatherMap API
 # =========================
-API_KEY = "803f77a96502ec00149f4b07055e5dd5"
+API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY")
 BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
+# =========================
+# Home Route
+# =========================
 @app.route('/')
 def index():
     logger.info("Home page opened")
     return render_template('index.html')
 
 
+# =========================
+# Weather Route
+# =========================
 @app.route('/weather', methods=['POST'])
 def weather():
 
     city = request.form.get('city', '').strip()
 
+    # Empty city validation
     if not city:
+
         logger.warning("City name not entered")
 
         return render_template(
@@ -46,6 +56,7 @@ def weather():
         )
 
     try:
+
         logger.info(f"Fetching weather for city: {city}")
 
         params = {
@@ -54,12 +65,18 @@ def weather():
             'units': 'metric'
         }
 
-        response = requests.get(BASE_URL, params=params)
+        # API request with timeout
+        response = requests.get(
+            BASE_URL,
+            params=params,
+            timeout=5
+        )
 
         logger.info(f"API Status Code: {response.status_code}")
 
         data = response.json()
 
+        # API error handling
         if data.get('cod') != 200:
 
             message = data.get('message', 'City not found')
@@ -72,6 +89,7 @@ def weather():
                 weather=None
             )
 
+        # Weather data
         weather_data = {
             'city': data['name'],
             'country': data['sys']['country'],
@@ -89,6 +107,26 @@ def weather():
             error=None
         )
 
+    except requests.exceptions.Timeout:
+
+        logger.exception("API Timeout Error")
+
+        return render_template(
+            'result.html',
+            error="API request timed out",
+            weather=None
+        )
+
+    except requests.exceptions.ConnectionError:
+
+        logger.exception("Network Connection Error")
+
+        return render_template(
+            'result.html',
+            error="Network connection error",
+            weather=None
+        )
+
     except Exception as e:
 
         logger.exception(f"Application Error: {str(e)}")
@@ -100,6 +138,15 @@ def weather():
         )
 
 
+# =========================
+# Main
+# =========================
 if __name__ == '__main__':
-    logger.info("Flask app started")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+
+    logger.info("Flask application started")
+
+    app.run(
+        host='0.0.0.0',
+        port=5000,
+        debug=True
+    )
