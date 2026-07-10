@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  cloudweather-api:
+    build: ./api
+    container_name: cloudweather-api
+    environment:
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+    networks:
+      - cloudweather-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cloudweather-ui:
+    build: ./ui
+    container_name: cloudweather-ui
+    ports:
+      - "8080:5000"
+    environment:
+      - API_URL=http://cloudweather-api:5000
+    depends_on:
+      cloudweather-api:
+        condition: service_healthy
+    networks:
+      - cloudweather-net
+
+networks:
+  cloudweather-net:
+    driver: bridge
